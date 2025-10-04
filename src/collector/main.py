@@ -17,12 +17,16 @@ def fetch_ibov(url: str):
     r.raise_for_status()
     data = r.json()
     df = pd.DataFrame(data.get("results", [])).copy()
+    
+    # Corrigido: transformar header_date em datetime e repetir para todas as linhas
     header_date = data.get("header", {}).get("date")
     if header_date:
-        df["data_referencia"] = pd.to_datetime(header_date, dayfirst=True).date() if header_date else None
-        df["data_referencia"] = [df["data_referencia"]] * len(df)  # repetir para cada linha
+        parsed_date = pd.to_datetime(header_date, dayfirst=True).date()
+        df["data_referencia"] = [parsed_date] * len(df)
+    else:
+        df["data_referencia"] = None
 
-    # rename safe
+    # rename seguro
     rename = {
         "code": "cod",
         "asset": "asset",
@@ -32,15 +36,19 @@ def fetch_ibov(url: str):
         "theoreticalQty": "theoricalQty",
     }
     df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
-    # coercions
+
+    # coerção de tipos
     if "part" in df.columns:
         df["part"] = pd.to_numeric(df["part"], errors="coerce")
     if "theoricalQty" in df.columns:
         df["theoricalQty"] = pd.to_numeric(df["theoricalQty"], errors="coerce")
-    # select final cols if present
+
+    # selecionar colunas finais se existirem
     cols = [c for c in ["cod","asset","type","part","theoricalQty","data_referencia"] if c in df.columns]
     df = df[cols]
+
     return df
+
 
 def load_to_bq_append(df: pd.DataFrame, table_id: str):
     if df.empty:

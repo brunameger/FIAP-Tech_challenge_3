@@ -18,7 +18,9 @@ def fetch_ibov(url: str):
     r.raise_for_status()
     data = r.json()
     df = pd.DataFrame(data.get("results", [])).copy()
-    df["data_referencia"] = pd.to_datetime(header_date, dayfirst=True)
+    if header_date:
+        df["data_referencia"] = pd.to_datetime(header_date, dayfirst=True).date()
+
     
     # rename safe
     rename = {

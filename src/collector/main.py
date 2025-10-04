@@ -19,7 +19,9 @@ def fetch_ibov(url: str):
     df = pd.DataFrame(data.get("results", [])).copy()
     header_date = data.get("header", {}).get("date")
     if header_date:
-        df["data_referencia"] = pd.to_datetime(header_date, dayfirst=True).dt.date
+        df["data_referencia"] = pd.to_datetime(header_date, dayfirst=True).date() if header_date else None
+        df["data_referencia"] = [df["data_referencia"]] * len(df)  # repetir para cada linha
+
     # rename safe
     rename = {
         "code": "cod",

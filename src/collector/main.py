@@ -44,9 +44,10 @@ def fetch_ibov(url: str):
 
     # Converte tipos numéricos
     if "part" in df.columns:
-        df["part"] = pd.to_numeric(df["part"], errors="coerce")
+        df["part"] = df["part"].str.replace(",", ".").astype(float, errors="ignore")
     if "theoricalQty" in df.columns:
-        df["theoricalQty"] = pd.to_numeric(df["theoricalQty"], errors="coerce")
+        df["theoricalQty"] = df["theoricalQty"].str.replace(".", "").astype(float, errors="ignore")
+
 
     # Seleciona colunas finais
     cols = [c for c in ["cod", "asset", "type", "part", "theoricalQty", "data_referencia"] if c in df.columns]

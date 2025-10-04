@@ -49,7 +49,9 @@ def load_to_bq_append(df: pd.DataFrame, table_id: str):
         return {"rows": 0}
     # Option 1: streaming inserts (near real-time)
     if USE_STREAMING:
-        rows = df.where(pd.notnull(df), None).to_dict(orient="records")
+        rows = df.where(pd.notnull(df), None).copy()
+        rows["data_referencia"] = rows["data_referencia"].astype(str)
+        rows = rows.to_dict(orient="records")
         errors = client.insert_rows_json(table_id, rows)  # streaming insert
         if errors:
             raise RuntimeError(f"BigQuery streaming errors: {errors}")

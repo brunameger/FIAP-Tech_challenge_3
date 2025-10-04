@@ -10,8 +10,7 @@ app = Flask(__name__)
 BQ_TABLE = os.environ.get("BQ_TABLE", "fiap-tech3.tc_dataset.ibov")
 B3_URL = os.environ.get(
     "B3_URL",
-    "https://sistemaswebb3-listados.b3.com.br/indexProxy/indexCall/GetPortfolioDay/"
-    "eyJsYW5ndWFnZSI6InB0LWJyIiwicGFnZU51bWJlciI6MSwicGFnZVNpemUiOjIwLCJpbmRleCI6IklCT1YiLCJzZWdtZW50IjoiMSJ9"
+    "https://sistemaswebb3-listados.b3.com.br/indexProxy/indexCall/GetPortfolioDay/eyJsYW5ndWFnZSI6InB0LWJyIiwicGFnZU51bWJlciI6MSwicGFnZVNpemUiOjIwLCJpbmRleCI6IklCT1YiLCJzZWdtZW50IjoiMSJ9"
 )
 USE_STREAMING = os.environ.get("USE_STREAMING", "true").lower() == "true"
 

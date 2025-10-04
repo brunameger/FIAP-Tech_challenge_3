@@ -1,11 +1,8 @@
+# Dockerfile
 FROM python:3.11-slim
 WORKDIR /app
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-COPY src/ src/
-COPY artifacts/ artifacts/
-
-EXPOSE 8080
-CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "8080"]
+COPY src/collector /app
+ENV PORT=8080
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "main:app", "--workers", "2", "--threads", "4"]

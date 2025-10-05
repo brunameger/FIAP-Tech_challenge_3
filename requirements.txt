@@ -2,4 +2,9 @@ flask
 requests
 pandas
 google-cloud-bigquery
+google-cloud-storage
 gunicorn
+scikit-learn
+xgboost
+joblib
+matplotlib

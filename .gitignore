@@ -1,0 +1,5 @@
+.venv
+src/__pycache__
+src/predict/__pycache__
+src/trainer/__pycache__
+src/utils/__pycache__

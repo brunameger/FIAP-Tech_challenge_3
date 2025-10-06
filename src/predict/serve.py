@@ -1,47 +1,63 @@
 # src/predict/serve.py
-import os
-import joblib
-import tempfile
-from flask import Flask, request, jsonify
-from google.cloud import storage
+from flask import Flask, jsonify
 import pandas as pd
+import xgboost as xgb
+import joblib, os
+from google.cloud import bigquery, storage
 
 app = Flask(__name__)
 
-GCS_BUCKET = os.environ.get("GCS_BUCKET", "fiap-tech3-models")
-MODEL_NAME = os.environ.get("MODEL_NAME", "ibov_xgb_v1.joblib")
+MODEL_PATH = "ibov_xgb_v1.joblib"
+GCS_BUCKET = "fiap-tech3-models"
+BQ_CLIENT = bigquery.Client()
+DATASET = "tc_dataset"
+TABLE = "ibov"
 
-def download_model(bucket_name, model_name):
-    client = storage.Client()
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(model_name)
-    tmp = f"/tmp/{model_name}"
-    blob.download_to_filename(tmp)
-    data = joblib.load(tmp)
-    return data
+# Baixar modelo se não existir
+if not os.path.exists(MODEL_PATH):
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(GCS_BUCKET)
+    bucket.blob(MODEL_PATH).download_to_filename(MODEL_PATH)
 
-model_data = download_model(GCS_BUCKET, MODEL_NAME)
-model = model_data["model"]
-features = model_data["features"]
+saved = joblib.load(MODEL_PATH)
+model = saved["model"]
+features = saved["features"]
 
-def preprocess_input(df):
-    # expects theoricalQty, cod, asset and optionally data_referencia
-    df = df.copy()
-    # simple features similar to train (no lags here); you can enhance to fetch last historic lags
-    df["dow"] = pd.to_datetime(df.get("data_referencia", pd.Timestamp.now())).dt.dayofweek
-    df["month"] = pd.to_datetime(df.get("data_referencia", pd.Timestamp.now())).dt.month
+def add_features(df):
+    df["data_referencia"] = pd.to_datetime(df["data_referencia"])
+    df = df.sort_values(["cod", "data_referencia"])
+    df["theor_lag1"] = df.groupby("cod")["theoricalQty"].shift(1)
+    df["theor_lag2"] = df.groupby("cod")["theoricalQty"].shift(2)
+    df["roll_mean_3"] = df.groupby("cod")["theoricalQty"].shift(1).rolling(3, min_periods=1).mean().reset_index(0, drop=True)
+    df["dow"] = df["data_referencia"].dt.dayofweek
+    df["month"] = df["data_referencia"].dt.month
     df["cod_cat"] = df["cod"].astype("category").cat.codes
-    # keep features order
-    return df[features]
+
+    # Preencher NaN
+    df[["theor_lag1","theor_lag2","roll_mean_3"]] = df.groupby("cod")[["theor_lag1","theor_lag2","roll_mean_3"]].fillna(method="ffill")
+    df[["theor_lag1","theor_lag2","roll_mean_3"]] = df[["theor_lag1","theor_lag2","roll_mean_3"]].fillna(df["theoricalQty"])
+    return df
+
+def preprocess_input(df, feature_list):
+    return df[feature_list]
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    payload = request.get_json()
-    df = pd.DataFrame(payload if isinstance(payload, list) else [payload])
-    X = preprocess_input(df)
-    preds = model.predict(X)
-    df["predicted_part"] = preds
-    return jsonify(df.to_dict(orient="records"))
+    query = f"""
+    SELECT cod, asset, theoricalQty, data_referencia
+    FROM `{BQ_CLIENT.project}.{DATASET}.{TABLE}`
+    ORDER BY cod, data_referencia
+    """
+    df = BQ_CLIENT.query(query).to_dataframe()
+    if df.empty:
+        return jsonify({"error":"Sem dados"}),400
+
+    df = add_features(df)
+    X = preprocess_input(df, features)
+    dmatrix = xgb.DMatrix(X)
+    df["prediction"] = model.predict(dmatrix)
+
+    return jsonify(df[["data_referencia","cod","asset","prediction"]].to_dict(orient="records"))
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run(host="0.0.0.0", port=8080, debug=True)

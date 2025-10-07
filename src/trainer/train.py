@@ -1,4 +1,3 @@
-# src/trainer/train.py
 import os
 import joblib
 import numpy as np
@@ -9,12 +8,10 @@ from sklearn.metrics import mean_absolute_error
 from google.cloud import storage
 from src.utils.bq_utils import load_ibov_table
 
-# Config
 BQ_TABLE = os.environ.get("BQ_TABLE", "fiap-tech3.tc_dataset.ibov")
 MODEL_NAME = os.environ.get("MODEL_NAME", "ibov_xgb_v1.joblib")
 GCS_BUCKET = os.environ.get("GCS_BUCKET", "fiap-tech3-models")
 
-# ---------------- Feature engineering ----------------
 def create_features(df):
     df["data_referencia"] = pd.to_datetime(df["data_referencia"])
     df = df.sort_values(["cod", "data_referencia"])
@@ -30,9 +27,8 @@ def create_features(df):
     df["cod_cat"] = df["cod"].astype("category").cat.codes
 
     # Preencher lags e rolling com valor anterior se houver NaN
-    df[["theor_lag1", "theor_lag2", "roll_mean_3"]] = df.groupby("cod")[["theor_lag1", "theor_lag2", "roll_mean_3"]].fillna(method="ffill")
-    
-    # Último recurso: se ainda tiver NaN, preencher com valor base
+    df[["theor_lag1", "theor_lag2", "roll_mean_3"]] = df.groupby("cod")[["theor_lag1", "theor_lag2", "roll_mean_3"]].fillna(method="ffill")   
+
     df[["theor_lag1", "theor_lag2", "roll_mean_3"]] = df[["theor_lag1", "theor_lag2", "roll_mean_3"]].fillna(df["theoricalQty"])
 
     return df
@@ -83,7 +79,6 @@ def upload_to_gcs(local_path, bucket_name, dest_blob_name):
     blob.upload_from_filename(local_path)
     print(f"Modelo enviado: gs://{bucket_name}/{dest_blob_name}")
 
-# ---------------- Main ----------------
 def main():
     df = load_ibov_table(BQ_TABLE)
     model, feat_names = train_and_evaluate(df)

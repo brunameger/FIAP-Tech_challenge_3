@@ -1,63 +1,69 @@
-# src/predict/serve.py
-from flask import Flask, jsonify
+from fastapi import FastAPI
 import pandas as pd
+import joblib
 import xgboost as xgb
-import joblib, os
-from google.cloud import bigquery, storage
+from datetime import timedelta
+from src.utils.bq_utils import load_ibov_table
 
-app = Flask(__name__)
+app = FastAPI()
 
 MODEL_PATH = "ibov_xgb_v1.joblib"
-GCS_BUCKET = "fiap-tech3-models"
-BQ_CLIENT = bigquery.Client()
-DATASET = "tc_dataset"
-TABLE = "ibov"
 
-# Baixar modelo se não existir
-if not os.path.exists(MODEL_PATH):
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(GCS_BUCKET)
-    bucket.blob(MODEL_PATH).download_to_filename(MODEL_PATH)
+@app.post("/predict")
+def predict_next_day():
+    # Carrega o modelo
+    model_data = joblib.load(MODEL_PATH)
+    model = model_data["model"] if isinstance(model_data, dict) else model_data
 
-saved = joblib.load(MODEL_PATH)
-model = saved["model"]
-features = saved["features"]
+    # Carrega dados do BigQuery
+    df = load_ibov_table("fiap-tech3.tc_dataset.ibov")
 
-def add_features(df):
+    if df.empty:
+        return {"error": "Sem dados para prever"}
+
+    # Ajusta colunas e ordena
     df["data_referencia"] = pd.to_datetime(df["data_referencia"])
     df = df.sort_values(["cod", "data_referencia"])
-    df["theor_lag1"] = df.groupby("cod")["theoricalQty"].shift(1)
-    df["theor_lag2"] = df.groupby("cod")["theoricalQty"].shift(2)
-    df["roll_mean_3"] = df.groupby("cod")["theoricalQty"].shift(1).rolling(3, min_periods=1).mean().reset_index(0, drop=True)
-    df["dow"] = df["data_referencia"].dt.dayofweek
-    df["month"] = df["data_referencia"].dt.month
-    df["cod_cat"] = df["cod"].astype("category").cat.codes
 
-    # Preencher NaN
-    df[["theor_lag1","theor_lag2","roll_mean_3"]] = df.groupby("cod")[["theor_lag1","theor_lag2","roll_mean_3"]].fillna(method="ffill")
-    df[["theor_lag1","theor_lag2","roll_mean_3"]] = df[["theor_lag1","theor_lag2","roll_mean_3"]].fillna(df["theoricalQty"])
-    return df
+    # Previsão do próximo dia
+    results = []
+    for cod in df["cod"].unique():
+        df_ativo = df[df["cod"] == cod].copy()
+        df_ativo = df_ativo.sort_values("data_referencia")
 
-def preprocess_input(df, feature_list):
-    return df[feature_list]
+        last_row = df_ativo.iloc[-1]
+        next_date = last_row["data_referencia"] + timedelta(days=1)
 
-@app.route("/predict", methods=["POST"])
-def predict():
-    query = f"""
-    SELECT cod, asset, theoricalQty, data_referencia
-    FROM `{BQ_CLIENT.project}.{DATASET}.{TABLE}`
-    ORDER BY cod, data_referencia
-    """
-    df = BQ_CLIENT.query(query).to_dataframe()
-    if df.empty:
-        return jsonify({"error":"Sem dados"}),400
+        theor_lag1 = last_row["theoricalQty"]
+        theor_lag2 = df_ativo["theoricalQty"].iloc[-2] if len(df_ativo) > 1 else theor_lag1
+        roll_mean_3 = df_ativo["theoricalQty"].iloc[-3:].mean() if len(df_ativo) >= 3 else df_ativo["theoricalQty"].mean()
+        dow = next_date.dayofweek
+        month = next_date.month
+        cod_cat_series = df_ativo["cod"].astype("category").cat.codes
+        cod_cat = cod_cat_series.iloc[-1]  # Pega o código do último registro
 
-    df = add_features(df)
-    X = preprocess_input(df, features)
-    dmatrix = xgb.DMatrix(X)
-    df["prediction"] = model.predict(dmatrix)
+        features = {
+            "theor_lag1": theor_lag1,
+            "theor_lag2": theor_lag2,
+            "roll_mean_3": roll_mean_3,
+            "dow": dow,
+            "month": month,
+            "cod_cat": cod_cat
+        }
 
-    return jsonify(df[["data_referencia","cod","asset","prediction"]].to_dict(orient="records"))
+        X_pred = pd.DataFrame([features])
+        dtest = xgb.DMatrix(X_pred)
+        y_pred = model.predict(dtest)[0]
+
+        results.append({
+            "cod": cod,
+            "asset": last_row["asset"],
+            "data_referencia": next_date.strftime("%Y-%m-%d"),
+            "prediction": float(y_pred)
+        })
+
+    return results
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8080)

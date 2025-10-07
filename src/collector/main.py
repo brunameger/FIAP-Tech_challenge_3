@@ -6,7 +6,6 @@ from flask import Flask, jsonify
 
 app = Flask(__name__)
 
-# Configurações via variáveis de ambiente
 BQ_TABLE = os.environ.get("BQ_TABLE", "fiap-tech3.tc_dataset.ibov")
 B3_URL = os.environ.get(
     "B3_URL",
@@ -18,7 +17,6 @@ client = bigquery.Client()
 
 
 def fetch_ibov(url: str):
-    """Busca dados do IBOV e retorna um DataFrame limpo"""
     r = requests.get(url, timeout=30)
     r.raise_for_status()
     data = r.json()
@@ -31,7 +29,7 @@ def fetch_ibov(url: str):
     if header_date:
         df["data_referencia"] = pd.to_datetime(header_date, dayfirst=True).date()
 
-    # Renomeia colunas se existirem
+    # Renomeia colunas
     rename = {
         "code": "cod",
         "asset": "asset",
@@ -57,27 +55,22 @@ def fetch_ibov(url: str):
 
 
 def load_to_bq_append(df: pd.DataFrame, table_id: str):
-    """Insere os dados no BigQuery, tratando NaN e datas"""
     if df.empty:
         return {"rows": 0}
 
-    # Copia o DataFrame e trata NaN e datas
     df_clean = df.copy()
-    df_clean = df_clean.where(pd.notnull(df_clean), None)  # substitui NaN por None
+    df_clean = df_clean.where(pd.notnull(df_clean), None)
 
-    # Converte datas para string ISO
     if "data_referencia" in df_clean.columns:
         df_clean["data_referencia"] = df_clean["data_referencia"].astype(str)
 
     if USE_STREAMING:
-        # Streaming inserts
         rows = df_clean.to_dict(orient="records")
         errors = client.insert_rows_json(table_id, rows)
         if errors:
             raise RuntimeError(f"BigQuery streaming errors: {errors}")
         return {"rows": len(rows)}
     else:
-        # Batch load
         job = client.load_table_from_dataframe(
             df_clean,
             table_id,
@@ -87,17 +80,15 @@ def load_to_bq_append(df: pd.DataFrame, table_id: str):
         dest = client.get_table(table_id)
         return {"rows": len(df_clean), "table_rows": dest.num_rows}
 
-
+# Endpoint do Cloud Run para coletar e enviar dados
 @app.route("/collect", methods=["POST"])
-def collect_endpoint():
-    """Endpoint do Cloud Run para coletar e enviar dados"""
+def collect_endpoint():  
     try:
         df = fetch_ibov(B3_URL)
         res = load_to_bq_append(df, BQ_TABLE)
         return jsonify({"status": "ok", "detail": res})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

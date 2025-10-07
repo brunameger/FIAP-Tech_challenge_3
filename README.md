@@ -169,7 +169,7 @@ IBOV API → Collector (Flask) → BigQuery → Trainer (XGBoost) → Cloud Stor
 
 ---
 
-## 📝 Autor
+## 📝 Devs
 
 Alexandre Ghirello Cabestré  
 Briseyda Carolina Chambi Vargas Cardona  

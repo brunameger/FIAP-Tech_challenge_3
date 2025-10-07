@@ -171,8 +171,8 @@ IBOV API → Collector (Flask) → BigQuery → Trainer (XGBoost) → Cloud Stor
 
 ## 📝 Autor
 
-Alexandre Ghirello Cabestré
-Briseyda Carolina Chambi Vargas Cardona
-Bruna de Souza Meger
-Matheus Brum Pereira
+Alexandre Ghirello Cabestré  
+Briseyda Carolina Chambi Vargas Cardona  
+Bruna de Souza Meger  
+Matheus Brum Pereira  
 Roseane de Souza Silva
